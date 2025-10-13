@@ -44,6 +44,11 @@ jobs:
     # Timeout after 30 minutes
     timeout-minutes: 30
     
+    outputs:
+      status: ${{ steps.analysis.outputs.status }}
+      score: ${{ steps.analysis.outputs.score }}
+      device: ${{ steps.analysis.outputs.device }}
+    
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -67,19 +72,13 @@ jobs:
             fi
           fi
       
-      - name: Setup ADB
+      - name: Setup ADB (Linux/macOS)
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get update
             sudo apt-get install -y android-tools-adb
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             brew install android-platform-tools
-          elif [[ "$RUNNER_OS" == "Windows" ]]; then
-            # For Windows, ensure ADB is in PATH or download it
-            if (!(Get-Command adb -ErrorAction SilentlyContinue)) {
-              Write-Host "ADB not found. Please ensure it's installed and in PATH."
-              exit 1
-            }
           fi
         shell: bash
         if: runner.os != 'Windows'
@@ -188,9 +187,8 @@ jobs:
           echo "# 📱 Android Forensic Analysis Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [[ -f forensic-reports/forensic-report-*.json ]]; then
-            # Parse the latest JSON report
-            LATEST_JSON=$(ls -t forensic-reports/forensic-report-*.json | head -1)
+          LATEST_JSON=$(ls -t forensic-reports/forensic-report-*.json 2>/dev/null | head -1)
+          if [[ -n "$LATEST_JSON" && -f "$LATEST_JSON" ]]; then
             
             # Extract key information using jq or PowerShell
             if command -v jq &> /dev/null; then
@@ -252,10 +250,15 @@ jobs:
     
     steps:
       - name: Send Slack Notification
-        if: env.SLACK_WEBHOOK_URL != ''
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
+          # Skip if webhook URL is not configured
+          if [[ -z "$SLACK_WEBHOOK_URL" ]]; then
+            echo "No Slack webhook URL configured, skipping notification."
+            exit 0
+          fi
+          
           STATUS="${{ needs.forensic-analysis.outputs.status }}"
           SCORE="${{ needs.forensic-analysis.outputs.score }}"
           COLOR="good"
