@@ -162,6 +162,18 @@ if ($report.Summary.Status -eq "SUSPICIOUS") {
 
 ## 🔒 Security Considerations
 
+This repository is designed to be **safe for public use**. For detailed security information, see [SECURITY.md](SECURITY.md).
+
+**Key Points:**
+- **Public Repository Safe** - No hardcoded credentials, read-only analysis
+- **Local Data Control** - Reports stay on your machine unless you share them
+- **Fork-Friendly** - Each user runs workflows independently with their own secrets
+- **Privacy Focused** - Sensitive data is filtered from logs and reports
+
+**Usage Options:**
+- **Fork the repository** (recommended for GitHub Actions)
+- **Download and run locally** (maximum privacy control)
+
 - **Privacy**: Reports may contain sensitive device information
 - **Storage**: Secure report files appropriately
 - **Credentials**: Never commit device credentials or tokens
