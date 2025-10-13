@@ -1,0 +1,282 @@
+name: Android Forensic Analysis
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      device_serial:
+        description: 'Device serial number (optional)'
+        required: false
+        default: ''
+      skip_logs:
+        description: 'Skip log collection for faster analysis'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+  
+  # Scheduled runs (uncomment to enable)
+  # schedule:
+  #   - cron: '0 0 * * *'  # Daily at midnight
+  
+  # Trigger on push to main branch
+  push:
+    branches:
+      - main
+    paths:
+      - 'android-forensic-suite.ps1'
+      - '.github/workflows/android-forensic.yml'
+  
+  # Trigger on pull requests
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  forensic-analysis:
+    name: Run Forensic Analysis
+    # Use self-hosted runner for physical device access
+    # Change to 'ubuntu-latest' for GitHub-hosted runners with emulator
+    runs-on: self-hosted
+    
+    # Timeout after 30 minutes
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+      
+      - name: Setup PowerShell
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        run: |
+          if ! command -v pwsh &> /dev/null; then
+            echo "Installing PowerShell..."
+            if [[ "$RUNNER_OS" == "Linux" ]]; then
+              # Install PowerShell on Ubuntu
+              sudo apt-get update
+              sudo apt-get install -y wget apt-transport-https software-properties-common
+              wget -q https://packages.microsoft.com/config/ubuntu/20.04/packages-microsoft-prod.deb
+              sudo dpkg -i packages-microsoft-prod.deb
+              sudo apt-get update
+              sudo apt-get install -y powershell
+            elif [[ "$RUNNER_OS" == "macOS" ]]; then
+              # Install PowerShell on macOS
+              brew install --cask powershell
+            fi
+          fi
+      
+      - name: Setup ADB
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y android-tools-adb
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install android-platform-tools
+          elif [[ "$RUNNER_OS" == "Windows" ]]; then
+            # For Windows, ensure ADB is in PATH or download it
+            if (!(Get-Command adb -ErrorAction SilentlyContinue)) {
+              Write-Host "ADB not found. Please ensure it's installed and in PATH."
+              exit 1
+            }
+          fi
+        shell: bash
+        if: runner.os != 'Windows'
+      
+      - name: Check ADB Installation (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $adbPath = "C:\Android\SDK\platform-tools"
+          if (Test-Path $adbPath) {
+            $env:PATH = "$adbPath;$env:PATH"
+            [System.Environment]::SetEnvironmentVariable("PATH", $env:PATH, "User")
+          }
+          adb version
+        shell: pwsh
+      
+      - name: List Connected Devices
+        run: |
+          adb devices -l
+        shell: bash
+      
+      - name: Create Output Directory
+        run: |
+          New-Item -ItemType Directory -Path "forensic-reports" -Force
+        shell: pwsh
+      
+      - name: Run Forensic Analysis
+        id: analysis
+        run: |
+          $params = @{
+            OutputPath = "forensic-reports"
+          }
+          
+          # Add device serial if provided
+          if ("${{ github.event.inputs.device_serial }}" -ne "") {
+            $params.DeviceSerial = "${{ github.event.inputs.device_serial }}"
+          }
+          
+          # Add skip logs flag if true
+          if ("${{ github.event.inputs.skip_logs }}" -eq "true") {
+            $params.SkipLogCollection = $true
+          }
+          
+          # Run the analysis
+          .\android-forensic-suite.ps1 @params
+          
+          # Capture exit code
+          $exitCode = $LASTEXITCODE
+          
+          # Set output variables
+          echo "exit_code=$exitCode" >> $env:GITHUB_OUTPUT
+          
+          # Check for reports
+          $jsonReports = Get-ChildItem -Path "forensic-reports" -Filter "forensic-report-*.json"
+          $htmlReports = Get-ChildItem -Path "forensic-reports" -Filter "forensic-report-*.html"
+          
+          if ($jsonReports.Count -gt 0) {
+            $latestJson = $jsonReports | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            $report = Get-Content $latestJson.FullName | ConvertFrom-Json
+            
+            echo "status=$($report.Summary.Status)" >> $env:GITHUB_OUTPUT
+            echo "score=$($report.Summary.SecurityScore)" >> $env:GITHUB_OUTPUT
+            echo "device=$($report.Device.Model)" >> $env:GITHUB_OUTPUT
+            
+            # Output summary for GitHub Actions
+            Write-Host "::notice title=Forensic Analysis Complete::Status: $($report.Summary.Status), Score: $($report.Summary.SecurityScore)/100"
+            
+            if ($report.Summary.Warnings.Count -gt 0) {
+              foreach ($warning in $report.Summary.Warnings) {
+                Write-Host "::warning::$warning"
+              }
+            }
+          }
+        shell: pwsh
+        continue-on-error: true
+      
+      - name: Upload JSON Reports
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: forensic-reports-json
+          path: forensic-reports/*.json
+          retention-days: 30
+      
+      - name: Upload HTML Reports
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: forensic-reports-html
+          path: forensic-reports/*.html
+          retention-days: 30
+      
+      - name: Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: device-logs
+          path: |
+            forensic-reports/logcat-*.txt
+            forensic-reports/suspicious-*.txt
+          retention-days: 7
+          if-no-files-found: ignore
+      
+      - name: Create Summary
+        if: always()
+        run: |
+          echo "# 📱 Android Forensic Analysis Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ -f forensic-reports/forensic-report-*.json ]]; then
+            # Parse the latest JSON report
+            LATEST_JSON=$(ls -t forensic-reports/forensic-report-*.json | head -1)
+            
+            # Extract key information using jq or PowerShell
+            if command -v jq &> /dev/null; then
+              STATUS=$(jq -r '.Summary.Status' "$LATEST_JSON")
+              SCORE=$(jq -r '.Summary.SecurityScore' "$LATEST_JSON")
+              MODEL=$(jq -r '.Device.Model' "$LATEST_JSON")
+              ANDROID_VERSION=$(jq -r '.Device.AndroidVersion' "$LATEST_JSON")
+              WARNINGS=$(jq -r '.Summary.Warnings[]' "$LATEST_JSON" 2>/dev/null)
+            else
+              # Use PowerShell if jq is not available
+              STATUS=$(pwsh -Command "(Get-Content '$LATEST_JSON' | ConvertFrom-Json).Summary.Status")
+              SCORE=$(pwsh -Command "(Get-Content '$LATEST_JSON' | ConvertFrom-Json).Summary.SecurityScore")
+              MODEL=$(pwsh -Command "(Get-Content '$LATEST_JSON' | ConvertFrom-Json).Device.Model")
+              ANDROID_VERSION=$(pwsh -Command "(Get-Content '$LATEST_JSON' | ConvertFrom-Json).Device.AndroidVersion")
+            fi
+            
+            echo "## 📊 Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| **Status** | $STATUS |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Security Score** | $SCORE/100 |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Device Model** | $MODEL |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Android Version** | $ANDROID_VERSION |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if [[ -n "$WARNINGS" ]]; then
+              echo "## ⚠️ Warnings" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "$WARNINGS" | while read -r warning; do
+                echo "- $warning" >> $GITHUB_STEP_SUMMARY
+              done
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            echo "## 📁 Artifacts" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- [Download HTML Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+            echo "- [Download JSON Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ No forensic reports were generated. Please check the logs for errors." >> $GITHUB_STEP_SUMMARY
+          fi
+        shell: bash
+      
+      - name: Check Security Status
+        if: steps.analysis.outputs.status == 'SUSPICIOUS'
+        run: |
+          echo "::error::Security issues detected! Device status: SUSPICIOUS"
+          echo "::error::Security score: ${{ steps.analysis.outputs.score }}/100"
+          exit 1
+        shell: bash
+
+  # Optional: Send notifications
+  notify:
+    name: Send Notifications
+    needs: forensic-analysis
+    runs-on: ubuntu-latest
+    if: always() && github.event_name != 'pull_request'
+    
+    steps:
+      - name: Send Slack Notification
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          STATUS="${{ needs.forensic-analysis.outputs.status }}"
+          SCORE="${{ needs.forensic-analysis.outputs.score }}"
+          COLOR="good"
+          
+          if [[ "$STATUS" == "SUSPICIOUS" ]]; then
+            COLOR="danger"
+          elif [[ "$SCORE" -lt "80" ]]; then
+            COLOR="warning"
+          fi
+          
+          curl -X POST $SLACK_WEBHOOK_URL \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"attachments\": [{
+                \"color\": \"$COLOR\",
+                \"title\": \"Android Forensic Analysis Complete\",
+                \"text\": \"Status: $STATUS\\nScore: $SCORE/100\",
+                \"footer\": \"GitHub Actions\",
+                \"footer_icon\": \"https://github.githubassets.com/favicon.ico\",
+                \"ts\": $(date +%s)
+              }]
+            }"
+        shell: bash
+        continue-on-error: true

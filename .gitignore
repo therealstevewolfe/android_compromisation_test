@@ -1,0 +1,52 @@
+# Forensic Reports and Logs
+forensic-report-*.json
+forensic-report-*.html
+logcat-*.txt
+suspicious-*.txt
+full-logcat.txt
+all-packages.txt
+thirdparty.txt
+device-forensic-report.md
+
+# Output directories
+forensic-reports/
+monitoring/
+reports/
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+
+# PowerShell
+*.ps1.bak
+*.psm1.bak
+
+# Sensitive data
+*.key
+*.pem
+*.pfx
+credentials.json
+secrets.json
+
+# Test data
+test-reports/
+test-output/
+
+# Build artifacts
+dist/
+build/
+out/
