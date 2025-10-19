@@ -30,6 +30,8 @@ desktop.ini
 *.temp
 *.log
 *.bak
+__pycache__/
+.pytest_cache/
 
 # PowerShell
 *.ps1.bak

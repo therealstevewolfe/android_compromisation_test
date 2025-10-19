@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+import os
+import sys
+from textwrap import dedent
+
+MODE = os.environ.get("FAKE_ADB_MODE", "normal")
+
+ARGS = sys.argv[1:]
+
+
+def respond(text: str, exit_code: int = 0) -> None:
+    if text:
+        sys.stdout.write(text)
+    sys.exit(exit_code)
+
+
+def respond_error(text: str, exit_code: int = 1) -> None:
+    if text:
+        sys.stderr.write(text)
+    sys.exit(exit_code)
+
+
+if ARGS[:2] == ["devices", "-l"]:
+    if MODE == "unauthorized":
+        respond("List of devices attached\nFAKE123\tunauthorized\n")
+    elif MODE == "none":
+        respond("List of devices attached\n\n")
+    else:
+        respond(
+            "List of devices attached\n"
+            "FAKE123\tdevice product:pixel model=Pixel 5 device=sunfish transport_id:1\n"
+        )
+
+if not ARGS:
+    respond_error("No command provided\n")
+
+if ARGS[0] == "logcat" and "-d" in ARGS:
+    respond(
+        "10-17 12:00:00.000  1000  1001 I usb: configured\n"
+        "10-17 12:00:01.000  1000  1001 W auth: authenticated user\n"
+        "10-17 12:00:02.000  1000  1001 E system: normal log\n"
+    )
+
+if ARGS[0] == "shell":
+    SHELL_ARGS = ARGS[1:]
+
+    if not SHELL_ARGS:
+        respond_error("No shell command provided\n")
+
+    if SHELL_ARGS[:2] == ["getprop", "ro.product.model"]:
+        respond("Pixel 5\n")
+    if SHELL_ARGS[:2] == ["getprop", "ro.product.manufacturer"]:
+        respond("Google\n")
+    if SHELL_ARGS[:2] == ["getprop", "ro.build.version.release"]:
+        respond("14\n")
+    if SHELL_ARGS[:2] == ["getprop", "ro.build.fingerprint"]:
+        respond("google/sunfish/sunfish:14/UPB1/1234567\n")
+    if SHELL_ARGS[:2] == ["getprop", "ro.build.tags"]:
+        respond("release-keys\n")
+    if SHELL_ARGS[:2] == ["getprop", "ro.build.type"]:
+        respond("user\n")
+    if SHELL_ARGS[:2] == ["getprop", "ro.build.version.security_patch"]:
+        respond("2024-09-05\n")
+    if SHELL_ARGS[:2] == ["getprop", "ro.bootloader"]:
+        respond("fake-bootloader-1.0\n")
+    if SHELL_ARGS[:2] == ["getprop", "ro.hardware"]:
+        respond("sunfish\n")
+    if SHELL_ARGS[:2] == ["getprop", "ro.boot.verifiedbootstate"]:
+        respond("green\n")
+    if SHELL_ARGS[:2] == ["getprop", "ro.boot.veritymode"]:
+        respond("enforcing\n")
+    if SHELL_ARGS[:2] == ["getprop", "ro.boot.vbmeta.device_state"]:
+        respond("locked\n")
+
+    if SHELL_ARGS[:1] == ["getenforce"]:
+        respond("Enforcing\n")
+
+    if SHELL_ARGS[:3] == ["settings", "get", "global"] and len(SHELL_ARGS) == 4:
+        if SHELL_ARGS[3] == "adb_enabled":
+            respond("1\n")
+        if SHELL_ARGS[3] == "development_settings_enabled":
+            respond("1\n")
+
+    if SHELL_ARGS[:2] == ["which", "su"]:
+        respond("", exit_code=1)
+
+    if SHELL_ARGS[:1] == ["id"]:
+        respond("uid=2000(shell) gid=2000(shell) groups=1003(graphics) context=u:r:shell:s0\n")
+
+    if SHELL_ARGS[:1] == ["uptime"]:
+        respond(" 23:42:10 up 10 days,  5:12,  1 user,  load average: 0.01, 0.05, 0.02\n")
+
+    if SHELL_ARGS[:2] == ["dumpsys", "battery"]:
+        respond(
+            dedent(
+                """\
+                Current Battery Service state:
+                  AC powered: false
+                  USB powered: true
+                  Wireless powered: false
+                  status: 2
+                  health: 2
+                  present: true
+                  level: 80
+                  scale: 100
+                """
+            )
+        )
+
+    if SHELL_ARGS[:2] == ["dumpsys", "usb"]:
+        respond(
+            dedent(
+                """\
+                USB Device State:
+                  Connected: true
+                  Configured: true
+                  Current Functions: mtp
+                  Current Functions Applied: true
+                """
+            )
+        )
+
+    if SHELL_ARGS[:5] == ["pm", "list", "packages", "--user", "0"]:
+        respond("package:com.android.settings\npackage:com.example.app\n")
+
+    if SHELL_ARGS[:6] == ["pm", "list", "packages", "-3", "--user", "0"]:
+        respond("package:com.example.app\n")
+
+    respond_error(f"Unsupported shell command: {' '.join(SHELL_ARGS)}\n")
+
+respond_error(f"Unsupported command: {' '.join(ARGS)}\n")
