@@ -23,8 +23,31 @@ param(
 
 # Configuration
 $script:AdbCommand = "adb"
+$script:AdbArguments = @()
 if ($DeviceSerial) {
-    $script:AdbCommand = "adb -s $DeviceSerial"
+    $script:AdbArguments += @("-s", $DeviceSerial)
+}
+
+function Invoke-AdbCommand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments,
+        [switch]$AllowFailure
+    )
+
+    $fullArgs = @()
+    if ($script:AdbArguments.Count -gt 0) {
+        $fullArgs += $script:AdbArguments
+    }
+    $fullArgs += $Arguments
+
+    $output = & $script:AdbCommand @fullArgs 2>&1
+
+    if (-not $AllowFailure -and $LASTEXITCODE -ne 0) {
+        throw "ADB command failed with exit code $LASTEXITCODE: $output"
+    }
+
+    return $output
 }
 
 # Ensure output directory exists
@@ -33,8 +56,9 @@ if (Test-Path $OutputPath) {
 } else {
     $OutputPath = (New-Item -Path $OutputPath -ItemType Directory -Force).FullName
 }
-$ReportPath = Join-Path $OutputPath "forensic-report-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
-$HtmlReportPath = Join-Path $OutputPath "forensic-report-$(Get-Date -Format 'yyyyMMdd-HHmmss').html"
+$script:RunTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$ReportPath = Join-Path $OutputPath "forensic-report-$script:RunTimestamp.json"
+$HtmlReportPath = Join-Path $OutputPath "forensic-report-$script:RunTimestamp.html"
 
 # Initialize report structure
 $Report = @{
@@ -62,7 +86,7 @@ function Write-Status {
 function Test-AdbConnection {
     Write-Status "Checking ADB connection..."
     try {
-        $devices = & $AdbCommand devices -l 2>&1
+        $devices = Invoke-AdbCommand -Arguments @("devices", "-l") -AllowFailure
         if ($devices -match "unauthorized") {
             Write-Status "Device is unauthorized. Please authorize this computer on your device." "Warning"
             return $false
@@ -97,7 +121,7 @@ function Get-DeviceInfo {
     
     foreach ($key in $properties.Keys) {
         try {
-            $value = & $AdbCommand shell getprop $properties[$key] 2>&1
+            $value = Invoke-AdbCommand -Arguments @("shell", "getprop", $properties[$key])
             $deviceInfo[$key] = $value.Trim()
         } catch {
             $deviceInfo[$key] = "Error: $_"
@@ -114,21 +138,21 @@ function Get-SecurityStatus {
     $security = @{}
     
     # Boot verification
-    $security["VerifiedBootState"] = (& $AdbCommand shell getprop ro.boot.verifiedbootstate 2>&1).Trim()
-    $security["VerityMode"] = (& $AdbCommand shell getprop ro.boot.veritymode 2>&1).Trim()
-    $security["BootloaderState"] = (& $AdbCommand shell getprop ro.boot.vbmeta.device_state 2>&1).Trim()
-    $security["SELinux"] = (& $AdbCommand shell getenforce 2>&1).Trim()
-    
+    $security["VerifiedBootState"] = (Invoke-AdbCommand -Arguments @("shell", "getprop", "ro.boot.verifiedbootstate")).Trim()
+    $security["VerityMode"] = (Invoke-AdbCommand -Arguments @("shell", "getprop", "ro.boot.veritymode")).Trim()
+    $security["BootloaderState"] = (Invoke-AdbCommand -Arguments @("shell", "getprop", "ro.boot.vbmeta.device_state")).Trim()
+    $security["SELinux"] = (Invoke-AdbCommand -Arguments @("shell", "getenforce")).Trim()
+
     # Developer settings
-    $security["AdbEnabled"] = (& $AdbCommand shell settings get global adb_enabled 2>&1).Trim()
-    $security["DeveloperOptions"] = (& $AdbCommand shell settings get global development_settings_enabled 2>&1).Trim()
-    
+    $security["AdbEnabled"] = (Invoke-AdbCommand -Arguments @("shell", "settings", "get", "global", "adb_enabled")).Trim()
+    $security["DeveloperOptions"] = (Invoke-AdbCommand -Arguments @("shell", "settings", "get", "global", "development_settings_enabled")).Trim()
+
     # Root detection
-    $suCheck = & $AdbCommand shell "which su 2>/dev/null" 2>&1
+    $suCheck = Invoke-AdbCommand -Arguments @("shell", "sh", "-c", "which su 2>/dev/null") -AllowFailure
     $security["SuBinary"] = if ($suCheck) { "DETECTED - Device may be rooted!" } else { "Not found (Good)" }
-    
+
     # User context
-    $security["UserContext"] = (& $AdbCommand shell id 2>&1).Trim()
+    $security["UserContext"] = (Invoke-AdbCommand -Arguments @("shell", "id")).Trim()
     
     $Report.Security = $security
     Write-Status "Security check completed" "Success"
@@ -139,11 +163,11 @@ function Get-DeviceActivity {
     $activity = @{}
     
     # Uptime
-    $uptime = & $AdbCommand shell uptime 2>&1
+    $uptime = Invoke-AdbCommand -Arguments @("shell", "uptime")
     $activity["Uptime"] = $uptime.Trim()
-    
+
     # Battery status
-    $battery = & $AdbCommand shell dumpsys battery 2>&1 | Select-Object -First 20
+    $battery = Invoke-AdbCommand -Arguments @("shell", "dumpsys", "battery") | Select-Object -First 20
     $batteryInfo = @{}
     foreach ($line in $battery) {
         if ($line -match "^\s*(.+?):\s*(.+)$") {
@@ -153,7 +177,7 @@ function Get-DeviceActivity {
     $activity["Battery"] = $batteryInfo
     
     # USB status
-    $usbStatus = & $AdbCommand shell dumpsys usb 2>&1 | Select-Object -First 30
+    $usbStatus = Invoke-AdbCommand -Arguments @("shell", "dumpsys", "usb") | Select-Object -First 30
     $activity["USBConnection"] = ($usbStatus | Where-Object { $_ -match "current_functions|connected|configured" }) -join "; "
     
     $Report.Activity = $activity
@@ -166,13 +190,13 @@ function Get-PackageInfo {
     
     try {
         # Get all packages for main user
-        $allPackages = & $AdbCommand shell pm list packages --user 0 2>&1
+        $allPackages = Invoke-AdbCommand -Arguments @("shell", "pm", "list", "packages", "--user", "0")
         $packages["TotalCount"] = ($allPackages | Measure-Object).Count
-        
+
         # Get third-party packages
-        $thirdParty = & $AdbCommand shell pm list packages -3 --user 0 2>&1
+        $thirdParty = Invoke-AdbCommand -Arguments @("shell", "pm", "list", "packages", "-3", "--user", "0")
         $packages["ThirdPartyCount"] = ($thirdParty | Where-Object { $_ -match "^package:" } | Measure-Object).Count
-        
+
         # Sample of installed packages
         $packages["SamplePackages"] = $allPackages | Select-Object -First 10 | ForEach-Object { 
             if ($_ -match "package:(.+)") { $matches[1] } 
@@ -195,25 +219,27 @@ function Collect-Logs {
     
     Write-Status "Collecting device logs..."
     $logs = @{}
-    
+
     try {
         # Save full logcat
-        $logcatPath = Join-Path $OutputPath "logcat-$(Get-Date -Format 'yyyyMMdd-HHmmss').txt"
-        & $AdbCommand logcat -d > $logcatPath 2>&1
+        $logcatPath = Join-Path $OutputPath "logcat-$script:RunTimestamp.txt"
+        $logOutput = Invoke-AdbCommand -Arguments @("logcat", "-d") -AllowFailure
+        Set-Content -Path $logcatPath -Value $logOutput -Encoding UTF8
         $logSize = (Get-Item $logcatPath).Length / 1MB
         $logs["FullLogPath"] = $logcatPath
         $logs["LogSizeMB"] = [math]::Round($logSize, 2)
-        
+
         # Extract suspicious entries
-        $suspiciousPath = Join-Path $OutputPath "suspicious-$(Get-Date -Format 'yyyyMMdd-HHmmss').txt"
-        Select-String -Path $logcatPath -Pattern 'adbd|usb|debug|reboot|panic|auth|root|su' | 
-            Select-Object -First 100 | Out-File $suspiciousPath
+        $suspiciousPath = Join-Path $OutputPath "suspicious-$script:RunTimestamp.txt"
+        Select-String -Path $logcatPath -Pattern 'adbd|usb|debug|reboot|panic|auth|root|su' -SimpleMatch:$false |
+            Select-Object -First 100 |
+            Out-File -FilePath $suspiciousPath -Encoding UTF8
         $logs["SuspiciousLogPath"] = $suspiciousPath
-        
+
         # Count authentication events
         $authEvents = Select-String -Path $logcatPath -Pattern 'authenticated|authorization' | Measure-Object
         $logs["AuthenticationEvents"] = $authEvents.Count
-        
+
     } catch {
         $logs["Error"] = "Failed to collect logs: $_"
         $Report.Errors += "Log collection failed"
@@ -262,6 +288,10 @@ function Analyze-Results {
         $summary.SecurityScore -= 10
     }
     
+    if ($summary.Warnings.Count -gt 0) {
+        $summary.IsSecure = $false
+    }
+
     $summary.SecurityScore = [Math]::Max(0, $summary.SecurityScore)
     $summary.Status = if ($summary.IsSecure) { "CLEAN" } else { "SUSPICIOUS" }
     
