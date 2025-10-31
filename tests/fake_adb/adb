@@ -47,6 +47,11 @@ if ARGS[0] == "shell":
     if not SHELL_ARGS:
         respond_error("No shell command provided\n")
 
+    insecure = MODE == "insecure"
+
+    def respond_prop(default: str, insecure_value: str) -> None:
+        respond(insecure_value + "\n" if insecure else default + "\n")
+
     if SHELL_ARGS[:2] == ["getprop", "ro.product.model"]:
         respond("Pixel 5\n")
     if SHELL_ARGS[:2] == ["getprop", "ro.product.manufacturer"]:
@@ -66,22 +71,34 @@ if ARGS[0] == "shell":
     if SHELL_ARGS[:2] == ["getprop", "ro.hardware"]:
         respond("sunfish\n")
     if SHELL_ARGS[:2] == ["getprop", "ro.boot.verifiedbootstate"]:
-        respond("green\n")
+        respond("orange\n" if insecure else "green\n")
     if SHELL_ARGS[:2] == ["getprop", "ro.boot.veritymode"]:
         respond("enforcing\n")
     if SHELL_ARGS[:2] == ["getprop", "ro.boot.vbmeta.device_state"]:
-        respond("locked\n")
+        respond("unlocked\n" if insecure else "locked\n")
+    if SHELL_ARGS[:2] == ["getprop", "ro.debuggable"]:
+        respond_prop("0", "1")
+    if SHELL_ARGS[:2] == ["getprop", "ro.secure"]:
+        respond_prop("1", "0")
+    if SHELL_ARGS[:2] == ["getprop", "persist.sys.oem_unlock_allowed"]:
+        respond_prop("0", "1")
 
     if SHELL_ARGS[:1] == ["getenforce"]:
-        respond("Enforcing\n")
+        respond("Permissive\n" if insecure else "Enforcing\n")
 
     if SHELL_ARGS[:3] == ["settings", "get", "global"] and len(SHELL_ARGS) == 4:
         if SHELL_ARGS[3] == "adb_enabled":
-            respond("1\n")
+            respond("1\n" if insecure else "0\n")
         if SHELL_ARGS[3] == "development_settings_enabled":
-            respond("1\n")
+            respond("1\n" if insecure else "0\n")
+
+    if SHELL_ARGS[:3] == ["settings", "get", "secure"] and len(SHELL_ARGS) == 4:
+        if SHELL_ARGS[3] == "install_non_market_apps":
+            respond("1\n" if insecure else "0\n")
 
     if SHELL_ARGS[:2] == ["which", "su"]:
+        if insecure:
+            respond("/system/bin/su\n")
         respond("", exit_code=1)
 
     if SHELL_ARGS[:1] == ["id"]:
@@ -118,6 +135,51 @@ if ARGS[0] == "shell":
                   Current Functions Applied: true
                 """
             )
+        )
+
+    if SHELL_ARGS[:2] == ["dumpsys", "wifi"]:
+        respond(
+            dedent(
+                """\
+                Wi-Fi is enabled
+                Supplicant State: COMPLETED
+                SSID: MySecureNetwork
+                BSSID: 12:34:56:78:90:ab
+                """
+            )
+        )
+
+    if SHELL_ARGS[:4] == ["ip", "addr", "show", "wlan0"]:
+        respond(
+            dedent(
+                """\
+                3: wlan0: <UP,LOWER_UP> mtu 1500 qdisc mq state UP group default qlen 3000
+                    link/ether aa:bb:cc:dd:ee:ff brd ff:ff:ff:ff:ff:ff
+                    inet 192.168.1.101/24 brd 192.168.1.255 scope global wlan0
+                """
+            )
+        )
+
+    if SHELL_ARGS[:3] == ["top", "-n", "1"]:
+        respond(
+            dedent(
+                """\
+                Tasks: 356 total,   2 running, 354 sleeping,   0 stopped,   0 zombie
+                %CPU usage from 0 to 100
+                PID USER     CPU% NAME
+                1234 system   12% com.android.systemui
+                2345 radio     6% com.android.phone
+                3456 u0_a123   4% com.example.app
+                4567 u0_a456   2% com.android.settings
+                5678 root      1% adbd
+                """
+            )
+        )
+
+    if SHELL_ARGS[:2] == ["df", "/data"]:
+        respond(
+            "Filesystem     1K-blocks     Used Available Use% Mounted on\n"
+            "/dev/block/dm-0  52428800  20971520  31457280 40% /data\n"
         )
 
     if SHELL_ARGS[:5] == ["pm", "list", "packages", "--user", "0"]:
