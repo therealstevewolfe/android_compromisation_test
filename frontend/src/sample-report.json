@@ -1,0 +1,120 @@
+{
+  "Timestamp": "2024-10-10 12:45:12",
+  "Device": {
+    "Model": "Pixel 7",
+    "Manufacturer": "Google",
+    "AndroidVersion": "14",
+    "BuildFingerprint": "google/panther/panther:14/UQ1A.240905.001/1234567:user/release-keys",
+    "BuildTags": "release-keys",
+    "BuildType": "user",
+    "SecurityPatch": "2024-09-05",
+    "Bootloader": "panther-1.0",
+    "Hardware": "panther"
+  },
+  "Security": {
+    "VerifiedBootState": "green",
+    "VerityMode": "enforcing",
+    "BootloaderState": "locked",
+    "SELinux": "enforcing",
+    "AdbEnabled": "0",
+    "DeveloperOptions": "0",
+    "UnknownSources": "0",
+    "Debugger": "0",
+    "SecureMode": "1",
+    "OemUnlockAllowed": "0",
+    "SuBinary": "Not found (Good)",
+    "UserContext": "uid=2000(shell) gid=2000(shell) groups=1003(graphics) context=u:r:shell:s0"
+  },
+  "Activity": {
+    "Uptime": " 23:42:10 up 10 days,  5:12,  1 user,  load average: 0.01, 0.05, 0.02",
+    "Battery": {
+      "AC powered": "false",
+      "USB powered": "true",
+      "Wireless powered": "false",
+      "status": "2",
+      "health": "2",
+      "present": "true",
+      "level": "80",
+      "scale": "100"
+    },
+    "USBConnection": "Connected: true; Configured: true; Current Functions: mtp; Current Functions Applied: true"
+  },
+  "Packages": {
+    "TotalCount": 142,
+    "ThirdPartyCount": 37,
+    "SamplePackages": [
+      "com.android.settings",
+      "com.google.android.gms",
+      "com.example.secureapp",
+      "com.google.android.apps.photos",
+      "com.google.android.youtube",
+      "com.android.chrome"
+    ]
+  },
+  "Logs": {
+    "FullLogPath": "logcat-20241010-124512.txt",
+    "SuspiciousLogPath": "suspicious-20241010-124512.txt",
+    "LogSizeMB": 4.5,
+    "AuthenticationEvents": 3
+  },
+  "Network": {
+    "Interfaces": [
+      {
+        "name": "wlan0",
+        "state": "UP",
+        "mac": "aa:bb:cc:dd:ee:ff",
+        "addresses": [
+          "192.168.1.42/24"
+        ]
+      },
+      {
+        "name": "rmnet_data0",
+        "state": "DOWN",
+        "mac": "bb:cc:dd:ee:ff:00",
+        "addresses": []
+      }
+    ],
+    "WifiStatus": {
+      "WifiEnabled": "enabled",
+      "SupplicantState": "COMPLETED",
+      "ConnectedSsid": "BlueTeamLab",
+      "BSSID": "12:34:56:78:90:ab"
+    }
+  },
+  "Performance": {
+    "TopProcesses": [
+      { "pid": "1234", "user": "system", "cpu": "12", "name": "com.android.systemui" },
+      { "pid": "2345", "user": "radio", "cpu": "6", "name": "com.android.phone" },
+      { "pid": "3456", "user": "u0_a123", "cpu": "4", "name": "com.example.secureapp" },
+      { "pid": "4567", "user": "u0_a456", "cpu": "2", "name": "com.android.settings" }
+    ],
+    "DataPartition": {
+      "Filesystem": "/dev/block/dm-0",
+      "1K-blocks": "52428800",
+      "Used": "20971520",
+      "Available": "31457280",
+      "Use%": "40%",
+      "Mounted": "/data"
+    }
+  },
+  "Errors": [],
+  "Summary": {
+    "Warnings": [],
+    "SecurityScore": 98,
+    "Status": "CLEAN",
+    "IsSecure": true,
+    "RiskFactors": [],
+    "ScoreBreakdown": [
+      { "check": "Root binaries absent", "passed": true, "impact": 50 },
+      { "check": "Bootloader locked", "passed": true, "impact": 30 },
+      { "check": "SELinux enforcing", "passed": true, "impact": 20 },
+      { "check": "Verified boot integrity", "passed": true, "impact": 20 },
+      { "check": "ADB debugging disabled", "passed": true, "impact": 10 }
+    ],
+    "Visualization": {
+      "RiskCount": 0,
+      "ThirdPartyPackages": 37,
+      "AuthenticationEvents": 3
+    }
+  }
+}

@@ -39,6 +39,7 @@ def test_run_pipeline_exports_reports(tmp_path: Path) -> None:
 
     assert report.summary["Status"] == "CLEAN"
     assert report.summary["SecurityScore"] == 100
+    assert report.summary["RiskFactors"] == []
     assert report.logs["AuthenticationEvents"] == 1
     assert Path(report.logs["FullLogPath"]).exists()
     assert Path(report.logs["SuspiciousLogPath"]).exists()
@@ -47,9 +48,12 @@ def test_run_pipeline_exports_reports(tmp_path: Path) -> None:
 
     json_data = json.loads(json_path.read_text(encoding="utf-8"))
     assert json_data["Device"]["Model"] == "Pixel 5"
+    assert json_data["Network"]["Interfaces"][0]["state"] == "UP"
+    assert json_data["Performance"]["DataPartition"]["Use%"] == "40%"
 
     html_text = html_path.read_text(encoding="utf-8")
     assert "Android Device Forensic Analysis Report" in html_text
+    assert "Risk Factors" in html_text
 
 
 def test_run_with_skip_logs(tmp_path: Path) -> None:
@@ -59,3 +63,16 @@ def test_run_with_skip_logs(tmp_path: Path) -> None:
 
     assert report.logs["Status"] == "Skipped by user"
     assert "FullLogPath" not in report.logs
+    assert report.summary["SecurityScore"] == 100
+
+
+def test_insecure_device_triggers_warnings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("FAKE_ADB_MODE", "insecure")
+
+    analyzer = AndroidForensicAnalyzer(AdbInterface())
+    report, _, _ = analyzer.run(tmp_path, skip_logs=False)
+
+    assert report.summary["Status"] == "SUSPICIOUS"
+    assert report.summary["SecurityScore"] < 100
+    assert len(report.summary["RiskFactors"]) >= 3
+    assert any("root" in warning.lower() for warning in report.summary["Warnings"])
