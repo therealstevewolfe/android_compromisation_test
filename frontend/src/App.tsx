@@ -1,180 +1,129 @@
 import { useMemo, useState } from 'react';
-import sampleReport from './sample-report.json';
-import { AnalysisReport, RiskFactor, ScoreBreakdownItem } from './types';
-import { FileUploader } from './components/FileUploader';
-import { SummaryCards } from './components/SummaryCards';
-import { ScoreGauge } from './components/ScoreGauge';
-import { BreakdownChart } from './components/BreakdownChart';
-import { RiskCards } from './components/RiskCards';
-import { PackagesChart } from './components/PackagesChart';
-import { NetworkPanel } from './components/NetworkPanel';
-import { PerformancePanel } from './components/PerformancePanel';
+import {
+  IonButton,
+  IonButtons,
+  IonCard,
+  IonCardContent,
+  IonGrid,
+  IonIcon,
+  IonRow,
+  IonCol,
+  IonText,
+  IonTextarea,
+} from '@ionic/react';
+import { mic, micOff, pulse, flash } from 'ionicons/icons';
+import { AppShell } from './components/AppShell';
+import { Field } from './components/Field';
+import { QuietMode } from './components/QuietMode';
+import { useVoiceStream } from './hooks/useVoiceStream';
+import { useTranscriptStore } from './state/transcriptStore';
 
-const parseReport = (content: string): AnalysisReport => {
-  const parsed = JSON.parse(content);
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Invalid JSON structure');
-  }
-  if (!parsed.Summary) {
-    throw new Error('Summary section missing from report');
-  }
-  return parsed as AnalysisReport;
+const statusColor: Record<string, string> = {
+  idle: 'muted',
+  listening: 'success',
+  paused: 'warning',
+  error: 'danger',
 };
 
-const normaliseRisks = (risks?: RiskFactor[]): RiskFactor[] => {
-  if (!Array.isArray(risks)) {
-    return [];
-  }
-  return risks.map((risk) => ({
-    ...risk,
-    severity: (risk.severity || 'medium').toLowerCase(),
-  }));
+const LiveStatus = ({ status }: { status: string }) => (
+  <div className={`badge badge-${statusColor[status] ?? 'muted'}`}>
+    <IonIcon icon={status === 'listening' ? pulse : status === 'paused' ? flash : mic} />
+    <span>{status}</span>
+  </div>
+);
+
+const heroCopy = {
+  title: 'Silence-first AI listening',
+  subtitle:
+    'Listen-Bot stays focused on your words. Streaming text, semantic highlights, and calm controls keep you in the flow across any device.',
 };
-
-const normaliseBreakdown = (breakdown?: ScoreBreakdownItem[]): ScoreBreakdownItem[] => {
-  if (!Array.isArray(breakdown)) {
-    return [];
-  }
-  return breakdown.map((item) => ({
-    ...item,
-    impact: Number(item.impact ?? 0),
-    passed: Boolean(item.passed),
-  }));
-};
-
-const buildInterfaces = (report: AnalysisReport) => {
-  const interfaces = Array.isArray(report.Network?.Interfaces) ? report.Network.Interfaces : [];
-  return interfaces.map((entry) => ({
-    name: entry.name ?? 'wlan0',
-    state: entry.state ?? 'UNKNOWN',
-    mac: entry.mac ?? '—',
-    addresses: Array.isArray(entry.addresses) ? entry.addresses : entry.addresses ? [entry.addresses] : [],
-  }));
-};
-
-const buildTopProcesses = (report: AnalysisReport) => {
-  const processes = Array.isArray(report.Performance?.TopProcesses) ? report.Performance.TopProcesses : [];
-  return processes.map((proc) => ({
-    pid: proc.pid ?? proc.PID ?? '—',
-    user: proc.user ?? proc.USER ?? '—',
-    cpu: proc.cpu ?? proc['CPU%'] ?? '0',
-    name: proc.name ?? proc.process ?? proc.PROCESS ?? '—',
-  }));
-};
-
-const buildStorage = (report: AnalysisReport) => {
-  const storage = report.Performance?.DataPartition;
-  if (!storage || typeof storage !== 'object') {
-    return undefined;
-  }
-  return storage as Record<string, unknown>;
-};
-
-const formatWarnings = (warnings?: string[]) => (Array.isArray(warnings) ? warnings : []);
-
-const sampleReportString = JSON.stringify(sampleReport, null, 2);
 
 const App = () => {
-  const [report, setReport] = useState<AnalysisReport | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { startListening, stopListening, feedText, segments, liveText, status, error } = useVoiceStream();
+  const { quietMode, minimalAcknowledgement, acknowledgementQueue, setMinimalAcknowledgement, setQuietMode } = useTranscriptStore();
+  const [manualText, setManualText] = useState('');
 
-  const handleFileLoaded = (content: string) => {
-    try {
-      const parsed = parseReport(content);
-      setReport(parsed);
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    }
+  const listening = status === 'listening';
+
+  const lastAcknowledgement = useMemo(() => acknowledgementQueue[acknowledgementQueue.length - 1], [acknowledgementQueue]);
+
+  const handleManualSubmit = () => {
+    feedText(manualText);
+    setManualText('');
   };
-
-  const handleSampleRequested = () => {
-    handleFileLoaded(sampleReportString);
-  };
-
-  const summary = report?.Summary;
-  const riskFactors = useMemo(() => normaliseRisks(summary?.RiskFactors), [summary?.RiskFactors]);
-  const breakdown = useMemo(() => normaliseBreakdown(summary?.ScoreBreakdown), [summary?.ScoreBreakdown]);
-  const warnings = useMemo(() => formatWarnings(summary?.Warnings), [summary?.Warnings]);
-  const interfaces = useMemo(() => (report ? buildInterfaces(report) : []), [report]);
-  const topProcesses = useMemo(() => (report ? buildTopProcesses(report) : []), [report]);
-  const storage = useMemo(() => (report ? buildStorage(report) : undefined), [report]);
 
   return (
-    <div className="app-shell">
-      <header>
-        <h1>Android Forensic Dashboard</h1>
-        <p>
-          Visualise ADB forensic results with interactive charts, risk factors, and device health insights. Upload a JSON report
-          generated by the analysis suite or explore the curated sample.
-        </p>
-      </header>
-      <main>
-        <section>
-          <FileUploader onFileLoaded={handleFileLoaded} onSampleRequested={handleSampleRequested} />
-          {error && (
-            <p style={{ color: '#dc2626', marginTop: '1rem', textAlign: 'center' }}>Failed to load report: {error}</p>
-          )}
-        </section>
+    <AppShell statusBadge={<LiveStatus status={status} />}>
+      <div className="hero">
+        <div>
+          <p className="pill">Voice-first · Ionic + React</p>
+          <h1>{heroCopy.title}</h1>
+          <p className="lead">{heroCopy.subtitle}</p>
+          <IonButtons className="cta-row">
+            <IonButton color="primary" shape="round" onClick={listening ? stopListening : startListening}>
+              <IonIcon slot="start" icon={listening ? micOff : mic} />
+              {listening ? 'Stop listening' : 'Start listening'}
+            </IonButton>
+            <IonButton shape="round" fill="outline" onClick={handleManualSubmit} disabled={!manualText.trim()}>
+              Send typed text
+            </IonButton>
+          </IonButtons>
+        </div>
+        <div className="pulse-wrapper" aria-hidden="true">
+          <span className={`pulse ${listening ? 'active' : ''}`}></span>
+        </div>
+      </div>
 
-        {report ? (
-          <div className="dashboard-grid">
-            <SummaryCards
-              status={summary?.Status}
-              score={summary?.SecurityScore ?? 0}
-              warnings={warnings.length}
-              authEvents={report.Logs?.AuthenticationEvents ?? 'N/A'}
+      <IonGrid fixed={true} className="layout-grid">
+        <IonRow>
+          <IonCol size="12" sizeMd="8">
+            <Field segments={segments} liveText={liveText} status={status} />
+          </IonCol>
+          <IonCol size="12" sizeMd="4">
+            <IonCard className="glass">
+              <IonCardContent>
+                <h3>Session controls</h3>
+                <p className="muted">Toggle voice capture and feed in typed context when you need silence.</p>
+                <div className="control-row">
+                  <IonButton expand="block" color={listening ? 'danger' : 'success'} onClick={listening ? stopListening : startListening}>
+                    <IonIcon slot="start" icon={listening ? micOff : mic} />
+                    {listening ? 'Pause listening' : 'Begin listening'}
+                  </IonButton>
+                </div>
+                <IonTextarea
+                  label="Keyboard fallback"
+                  labelPlacement="stacked"
+                  placeholder="Type to push into the transcript pipeline"
+                  value={manualText}
+                  autoGrow={true}
+                  onIonChange={(event) => setManualText(event.detail.value ?? '')}
+                />
+                <IonButton expand="block" fill="outline" onClick={handleManualSubmit} disabled={!manualText.trim()}>
+                  Push typed text
+                </IonButton>
+                {lastAcknowledgement ? (
+                  <IonText color="success">
+                    <p className="muted">Minimal acknowledgement: {lastAcknowledgement}</p>
+                  </IonText>
+                ) : null}
+                {error ? (
+                  <IonText color="danger">
+                    <p className="muted">{error}</p>
+                  </IonText>
+                ) : null}
+              </IonCardContent>
+            </IonCard>
+
+            <QuietMode
+              quietMode={quietMode}
+              minimalAcknowledgement={minimalAcknowledgement}
+              onQuietChange={setQuietMode}
+              onMinimalChange={setMinimalAcknowledgement}
             />
-
-            <ScoreGauge score={summary?.SecurityScore ?? 0} breakdownCount={breakdown.length} />
-
-            <BreakdownChart breakdown={breakdown} />
-
-            <RiskCards risks={riskFactors} />
-
-            <PackagesChart
-              total={report.Packages?.TotalCount ?? 0}
-              thirdParty={report.Packages?.ThirdPartyCount ?? 0}
-            />
-
-            <NetworkPanel interfaces={interfaces} wifiStatus={report.Network?.WifiStatus as Record<string, unknown>} />
-
-            <PerformancePanel topProcesses={topProcesses} storage={storage} />
-
-            {warnings.length > 0 && (
-              <div className="card">
-                <h2>Warnings</h2>
-                <ul>
-                  {warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {report.Errors?.length ? (
-              <div className="card">
-                <h2>Collection Errors</h2>
-                <ul>
-                  {report.Errors.map((errMsg) => (
-                    <li key={errMsg}>{errMsg}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <div className="card empty-state">
-            <h2>Upload a forensic report to get started</h2>
-            <p>
-              Generate a new report with the Python CLI or PowerShell script, then import the JSON file. You can also explore the
-              bundled sample report to preview the interactive charts and cards.
-            </p>
-          </div>
-        )}
-      </main>
-      <footer>Crafted with care for rapid security triage ✨</footer>
-    </div>
+          </IonCol>
+        </IonRow>
+      </IonGrid>
+    </AppShell>
   );
 };
 
